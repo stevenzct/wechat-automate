@@ -1,0 +1,30 @@
+# Local Python environments
+.venv/
+venv/
+.runtime/
+
+# Python caches and packaging output
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Runtime logs and local state
+*.log
+.wechat_last_sent
+.wechat_easy_config.json
+
+# Generated screenshots may contain private desktop information
+timeout_screenshot_preview.png
+artifacts/
+
+# Local agent/editor metadata
+.agents/
+.codex/
+.idea/
+.vscode/
+
+# Windows metadata
+Thumbs.db
+Desktop.ini
