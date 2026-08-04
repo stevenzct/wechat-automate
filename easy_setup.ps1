@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet("Install", "Preview", "Draft")]
+    [ValidateSet("Install", "Preview", "Draft", "Disable")]
     [string]$Action
 )
 
@@ -12,6 +12,7 @@ $senderPath = Join-Path $projectPath "send_wechat_time.py"
 $setupPath = Join-Path $projectPath "setup_daily_task.ps1"
 $previewPath = Join-Path $projectPath "timeout_screenshot_preview.png"
 $configPath = Join-Path $projectPath ".wechat_easy_config.json"
+$taskName = "Send WeChat Attendance Screenshot at 6 PM"
 
 function Show-Header {
     param([string]$Title)
@@ -312,6 +313,8 @@ function Install-Automation {
 
     Write-Host "This will install the required Python packages and create a"
     Write-Host "Monday-to-Friday Windows scheduled task for your account."
+    Write-Host "Regular and special non-working Philippine holidays are skipped."
+    Write-Host "Special working holidays continue as normal workdays."
     Write-Host "Late task starts after the scheduled clock minute will be skipped."
     Write-Host "It will not send a WeChat message during installation."
     Write-Host ""
@@ -344,6 +347,7 @@ function Install-Automation {
     Write-Host "Please confirm:" -ForegroundColor Cyan
     Write-Host "  WeChat contact: $contact"
     Write-Host "  Weekdays at:    $sendTime"
+    Write-Host "  PH holidays:    skip regular and special non-working only"
     Write-Host "  Late starts:    skipped after the $sendTime clock minute"
     Write-Host ""
     $confirmation = Read-Host "Type YES to install"
@@ -369,6 +373,7 @@ function Install-Automation {
 
     Write-Host ""
     Write-Host "Installation completed." -ForegroundColor Green
+    Write-Host "Holiday protection is active and refreshes future official calendars."
     Write-Host "Next, double-click TEST_PREVIEW.bat to inspect the screenshot."
     Write-Host "After that, double-click TEST_DRAFT.bat to verify the WeChat chat."
 }
@@ -446,11 +451,46 @@ function Create-Draft {
     Write-Host "Check the conversation now, then delete the draft manually."
 }
 
+function Disable-Automation {
+    Show-Header "Disable automatic sending"
+
+    $scheduledTask = Get-ScheduledTask `
+        -TaskName $taskName `
+        -ErrorAction SilentlyContinue
+    if (-not $scheduledTask) {
+        Write-Host "No installed WeChat attendance task was found." -ForegroundColor Yellow
+        Write-Host "Nothing needs to be disabled."
+        return
+    }
+
+    if ($scheduledTask.State -eq "Disabled") {
+        Write-Host "Automatic sending is already disabled." -ForegroundColor Green
+        Write-Host "Run INSTALL.bat if you want to enable it again."
+        return
+    }
+
+    Write-Host "This stops all future automatic weekday sends." -ForegroundColor Yellow
+    Write-Host "It does not delete the project, logs, previews, or saved settings."
+    Write-Host "You can enable it again later by running INSTALL.bat."
+    Write-Host ""
+    $confirmation = Read-Host "Type YES to disable automatic sending"
+    if ($confirmation -cne "YES") {
+        Write-Host "Disable cancelled. The scheduled task is still active." -ForegroundColor Yellow
+        return
+    }
+
+    Disable-ScheduledTask -TaskName $taskName | Out-Null
+    Write-Host ""
+    Write-Host "Automatic sending is now disabled." -ForegroundColor Green
+    Write-Host "No future scheduled messages will run unless INSTALL.bat is used again."
+}
+
 try {
     switch ($Action) {
         "Install" { Install-Automation }
         "Preview" { Show-Preview }
         "Draft" { Create-Draft }
+        "Disable" { Disable-Automation }
     }
 }
 catch {

@@ -16,6 +16,13 @@ from io import BytesIO
 from pathlib import Path
 
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    # The project's optional embedded Python runtime uses an isolated ._pth
+    # configuration and may not add the script directory automatically.
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+
 def configure_dpi_awareness_early() -> bool:
     """Set DPI mode before PyAutoGUI imports and initializes its Win32 backend."""
     user32 = ctypes.WinDLL("user32", use_last_error=True)
@@ -57,8 +64,10 @@ import win32gui
 import win32process
 from PIL import ImageChops, ImageStat
 
+from philippine_holidays import check_philippine_holiday
 
-APP_DIR = Path(__file__).resolve().parent
+
+APP_DIR = SCRIPT_DIR
 LOG_FILE = APP_DIR / "wechat_sender.log"
 DEFAULT_PREVIEW_FILE = APP_DIR / "timeout_screenshot_preview.png"
 
@@ -630,11 +639,25 @@ def parse_args() -> argparse.Namespace:
 def run_check(args: argparse.Namespace) -> int:
     executable = find_wechat_executable()
     screen_width, screen_height = pyautogui.size()
+    holiday_check = check_philippine_holiday(datetime.now().date())
     print("Automation check passed.")
     print(f"WeChat: {executable}")
     print(f"Screen: {screen_width}x{screen_height}")
     print(f"Contact: {args.contact}")
     print(f"Scheduled send time: {args.send_time.strftime('%H:%M')}")
+    if holiday_check.known_year:
+        print(
+            "Philippine holiday calendar: ready "
+            f"({holiday_check.source_description})"
+        )
+    else:
+        print(
+            "Philippine holiday calendar: not published or not reachable for "
+            f"{holiday_check.day.year}; scheduled runs will safely skip until it "
+            "can be verified."
+        )
+    if holiday_check.refresh_warning:
+        print(f"Holiday calendar refresh warning: {holiday_check.refresh_warning}")
     print("The laptop must be awake, unlocked, and signed in to WeChat when it runs.")
     return 0
 
@@ -668,6 +691,47 @@ def main() -> int:
             if not inside_schedule_window(now, args.send_time, args.grace_minutes):
                 logging.warning(
                     "Not within the %s schedule window; skipping.",
+                    args.send_time.strftime("%H:%M"),
+                )
+                return 0
+
+            holiday_check = check_philippine_holiday(now.date())
+            if holiday_check.refresh_warning:
+                logging.warning(
+                    "%s Continuing with %s.",
+                    holiday_check.refresh_warning,
+                    holiday_check.source_description,
+                )
+            if not holiday_check.known_year:
+                logging.warning(
+                    "No verified nationwide Philippine holiday calendar is "
+                    "available for %s; skipping rather than guessing that today "
+                    "is a workday.",
+                    now.year,
+                )
+                return 0
+            if holiday_check.holiday and holiday_check.holiday.is_non_working:
+                logging.info(
+                    "Today is %s (%s); skipping the scheduled workday message.",
+                    holiday_check.holiday.name,
+                    holiday_check.holiday.display_type,
+                )
+                return 0
+            if holiday_check.holiday:
+                logging.info(
+                    "Today is %s (%s); this is a working day, so the scheduled "
+                    "message will continue.",
+                    holiday_check.holiday.name,
+                    holiday_check.holiday.display_type,
+                )
+
+            # A calendar refresh can use several seconds. Recheck exact-minute
+            # mode so a refresh never turns an on-time start into a late send.
+            now = datetime.now()
+            if not inside_schedule_window(now, args.send_time, args.grace_minutes):
+                logging.warning(
+                    "The holiday check finished after the %s schedule window; "
+                    "skipping the late send.",
                     args.send_time.strftime("%H:%M"),
                 )
                 return 0

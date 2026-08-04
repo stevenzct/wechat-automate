@@ -14,6 +14,8 @@ dist/
 *.log
 .wechat_last_sent
 .wechat_easy_config.json
+.philippine_holiday_cache.json
+.philippine_holiday_cache.json.tmp
 
 # Generated screenshots may contain private desktop information
 timeout_screenshot_preview.png

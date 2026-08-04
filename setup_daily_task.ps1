@@ -106,11 +106,14 @@ Register-ScheduledTask `
     -Trigger $trigger `
     -Principal $principal `
     -Settings $settings `
-    -Description "Open the Windows date/time flyout and send the screenshot to $ContactName at $SendTime, Monday through Friday." `
+    -Description "Send the Windows date/time screenshot to $ContactName at $SendTime on Philippine workdays, excluding nationwide regular and special non-working holidays." `
     -Force | Out-Null
 
+Enable-ScheduledTask -TaskName $taskName | Out-Null
+
 Write-Host ""
-Write-Host "Done. '$taskName' will send to '$ContactName' Monday-Friday at $SendTime."
+Write-Host "Done. '$taskName' will send to '$ContactName' on Philippine workdays at $SendTime."
+Write-Host "Regular and special non-working holidays are skipped; special working holidays continue."
 Write-Host "Keep the laptop awake, unlocked, and signed in to WeChat at that time."
 Write-Host "Safe screenshot test:"
 Write-Host "  & '$pythonPath' '$scriptPath' --preview"

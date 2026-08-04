@@ -19,6 +19,7 @@ can be installed as a Monday-to-Friday Windows scheduled task.
 - [Manual setup with PowerShell](#manual-setup-with-powershell)
 - [Safe testing workflow](#safe-testing-workflow)
 - [Install the weekday scheduled task](#install-the-weekday-scheduled-task)
+- [Philippine holiday rules](#philippine-holiday-rules)
 - [Configuration](#configuration)
 - [Command-line reference](#command-line-reference)
 - [Manage the scheduled task](#manage-the-scheduled-task)
@@ -39,6 +40,10 @@ can be installed as a Monday-to-Friday Windows scheduled task.
 - Includes guided, double-clickable Windows helpers for installation, preview,
   and unsent draft testing.
 - Installs a weekday task through Windows Task Scheduler.
+- Skips nationwide Philippine Regular Holidays and Special (Non-Working)
+  Holidays, while continuing on Special (Working) Holidays.
+- Includes the verified 2026 calendar and refreshes later annual calendars from
+  the Official Gazette after the government publishes them.
 - Finds WeChat by the actual `WeChat.exe` or `Weixin.exe` process rather than by
   trusting a window title.
 - Verifies that WeChat remains in the foreground before every keyboard action.
@@ -64,9 +69,11 @@ can be installed as a Monday-to-Friday Windows scheduled task.
 7. Draft mode stops here. Otherwise, the script sends with `Alt+S` so it works
    regardless of the user's Enter-key preference in WeChat.
 
-Scheduled runs add two checks before capture: an optional weekday check and an
-exact-minute check. By default, a task scheduled for `18:00` may start during
-the `18:00` clock minute, but a start at `18:01` or later is logged and skipped.
+Scheduled runs check the weekday, exact clock minute, and nationwide Philippine
+holiday status before capture. By default, a task scheduled for `18:00` may
+start during the `18:00` clock minute, but a start at `18:01` or later is logged
+and skipped. Regular Holidays and Special (Non-Working) Holidays are skipped;
+Special (Working) Holidays continue as ordinary workdays.
 
 ## Requirements
 
@@ -120,11 +127,14 @@ page for **App Installer**. Install or update it, then run `INSTALL.bat` again.
 The project ZIP already includes every automation file a non-coder needs:
 
 - `INSTALL.bat`
+- `DISABLE.bat`
 - `TEST_PREVIEW.bat`
 - `TEST_DRAFT.bat`
 - `easy_setup.ps1`
 - `setup_daily_task.ps1`
 - `send_wechat_time.py`
+- `philippine_holidays.py`
+- `philippine_holidays.json`
 - `requirements.txt`
 
 Do **not** download Git, GitHub Desktop, PowerShell, Windows Task Scheduler, or
@@ -151,7 +161,8 @@ Double-click [`INSTALL.bat`](INSTALL.bat). It performs the following steps:
 2. Ask permission to download and install any missing required apps.
 3. Open WeChat and wait while the user signs in manually.
 4. Ask for the contact and weekday time.
-5. Install the required Python packages and create the scheduled task.
+5. Verify the Philippine holiday calendar.
+6. Install the required Python packages and create the scheduled task.
 
 The guided installer asks for:
 
@@ -205,6 +216,10 @@ At the scheduled weekday time:
 The user does not need to open this project or run `INSTALL.bat` every day.
 
 - The task runs automatically Monday through Friday at the selected time.
+- It skips nationwide Regular Holidays and Special (Non-Working) Holidays.
+- It still runs on Special (Working) Holidays because those are workdays.
+- It checks the Official Gazette for later annual calendars automatically; the
+  user does not need to reinstall it every January.
 - It remains installed after Windows restarts.
 - A task set for `18:00` is accepted only while the clock still reads `18:00`.
 - If the computer is asleep, locked, turned off, or starts the task at `18:01`
@@ -215,6 +230,16 @@ The user does not need to open this project or run `INSTALL.bat` every day.
 - Running `INSTALL.bat` again safely updates the existing task rather than
   creating a duplicate.
 
+### Disable automatic sending
+
+If the user no longer wants automatic messages, double-click
+[`DISABLE.bat`](DISABLE.bat) and type `YES` to confirm.
+
+- It immediately disables future scheduled runs.
+- It does not delete the project, logs, previews, or saved settings.
+- Running it again reports that automatic sending is already disabled.
+- To resume later, run `INSTALL.bat`; setup updates and re-enables the same task.
+
 There is intentionally no double-clickable real-send test. This reduces the
 risk of a non-technical user accidentally sending a screenshot to the wrong
 conversation. Advanced users can perform a real manual send with the PowerShell
@@ -223,6 +248,7 @@ command documented below.
 | Beginner file | What it does | Can it send? |
 | --- | --- | --- |
 | `INSTALL.bat` | Installs missing Python/WeChat apps, installs dependencies, validates the setup, and creates or updates the weekday task. | No message is sent during setup. |
+| `DISABLE.bat` | Requires confirmation, then disables all future scheduled runs without deleting files or settings. | No. |
 | `TEST_PREVIEW.bat` | Captures and opens a local preview without opening WeChat. | No. |
 | `TEST_DRAFT.bat` | Pastes the image into a selected WeChat conversation as an unsent draft. | No; it never presses Send. |
 
@@ -351,6 +377,54 @@ running setup and make sure that no `.runtime\python\python.exe` is present.
 Keep the chosen Python environment and this project folder at the same paths
 after registration; Task Scheduler stores absolute paths.
 
+## Philippine holiday rules
+
+Holiday protection is automatic for every `--scheduled` run. It follows the
+categories on the Philippine government's
+[Nationwide Holidays](https://www.officialgazette.gov.ph/nationwide-holidays/)
+calendar:
+
+| Official category | Scheduled result |
+| --- | --- |
+| Regular Holiday | Skip; no screenshot is captured and no WeChat message is sent. |
+| Special (Non-Working) Holiday | Skip; no screenshot is captured and no WeChat message is sent. |
+| Additional Special (Non-Working) Holiday | Skip; treated the same as any other special non-working day. |
+| Special (Working) Holiday | Continue at the selected time because it is a workday. |
+
+The bundled 2026 data is based on Proclamation No. 1006 and includes later
+nationwide proclamations for Eid'l Fitr and Eid'l Adha. For example, February
+25, 2026 is a Special (Working) Holiday, so the automation continues that day.
+March 20 and May 27, 2026 are Regular Holidays, so it skips those dates. See the
+[official 2026 nationwide calendar](https://www.officialgazette.gov.ph/nationwide-holidays/2026/),
+[Proclamation No. 1006](https://elibrary.judiciary.gov.ph/thebookshelf/showdocs/7/99678),
+[Eid'l Fitr Proclamation No. 1189](https://elibrary.judiciary.gov.ph/thebookshelf/showdocs/7/101036),
+and
+[Eid'l Adha Proclamation No. 1264](https://elibrary.judiciary.gov.ph/thebookshelf/showdocs/7/101531).
+
+### How later years work
+
+The government decides and publishes each year's exact categories and movable
+dates. The program therefore does not guess future Chinese New Year, Holy Week,
+Eid, or one-time holiday declarations.
+
+- The program checks the Official Gazette annual nationwide page and stores a
+  verified local cache. It retries at most once every 24 hours and begins
+  looking for the following year's published list each September.
+- After a future year's official list is published and successfully read, that
+  year works automatically without reinstalling the scheduled task.
+- If the internet or Official Gazette is temporarily unavailable, an already
+  verified bundled or cached calendar remains usable.
+- If no verified calendar is available for a new year, the program safely
+  skips scheduled messages until it can obtain that calendar. It never assumes
+  that an unknown date is a workday.
+- The holiday check is followed by another exact-minute check. If a refresh
+  finishes after the allowed clock minute, that day's late message is skipped.
+
+This feature covers **nationwide holidays only**. It does not automatically
+cover city/provincial holidays, company-specific days off, emergency work or
+class suspensions, or a holiday announcement that has not yet appeared in the
+official nationwide calendar.
+
 ## Configuration
 
 ### Setup parameters
@@ -434,6 +508,10 @@ python .\send_wechat_time.py --scheduled --weekdays-only `
 Running that command before `18:00` or at `18:01` and later logs a skip and
 exits successfully without capturing or sending.
 
+Holiday protection is always applied by `--scheduled`; no additional option is
+needed. `--send-now`, `--preview`, and the unsent draft test remain manual
+actions and do not apply the scheduled holiday rule.
+
 ## Manage the scheduled task
 
 Use the exact task name shown below in PowerShell.
@@ -489,6 +567,8 @@ automation runs for a long time.
 
 When a scheduled instance finds another copy running, it logs a warning and
 returns `0` so Task Scheduler records an intentional skip rather than a crash.
+Holiday skips also return `0`, and the log records the holiday name and official
+category.
 
 ## Safety, privacy, and limitations
 
@@ -517,6 +597,8 @@ returns `0` so Task Scheduler records an intentional skip rather than a crash.
 - **No delivery receipt is checked.** A successful exit after `Alt+S` means the
   send shortcut was submitted while WeChat retained focus; it does not verify
   server delivery or recipient receipt.
+- **Only nationwide holidays are checked.** Local holidays, company-specific
+  leave calendars, and emergency work suspensions require separate handling.
 
 PyAutoGUI's fail-safe remains enabled. Moving the pointer to a screen corner can
 raise a fail-safe exception and stop the run if emergency interruption is
@@ -576,6 +658,16 @@ a later minute, the run is safely skipped. Check Task Scheduler history and
 `wechat_sender.log`. Keep the computer awake and unlocked before the scheduled
 time because later catch-up sends are disabled.
 
+### `No verified nationwide Philippine holiday calendar is available`
+
+The government may not have published the requested year's calendar yet, the
+Official Gazette may be temporarily unreachable, or its page format may have
+changed. The task intentionally sends nothing while the year is unknown. Keep
+the internet connected and let the next scheduled run retry. Check the
+[Official Gazette nationwide calendar](https://www.officialgazette.gov.ph/nationwide-holidays/)
+and `wechat_sender.log`. An already verified calendar remains in
+`.philippine_holiday_cache.json` for later offline use.
+
 ### The task works manually but not in Task Scheduler
 
 Confirm all of the following:
@@ -594,11 +686,15 @@ Confirm all of the following:
 ```text
 wechat-automate/
 ├── INSTALL.bat               # Double-clickable guided installer
+├── DISABLE.bat               # Double-clickable stop switch for scheduled runs
 ├── TEST_PREVIEW.bat          # Double-clickable safe screenshot test
 ├── TEST_DRAFT.bat            # Double-clickable safe WeChat draft test
 ├── easy_setup.ps1            # Shared beginner workflow used by the .bat files
 ├── send_wechat_time.py       # Capture, validation, WeChat UI automation, CLI
+├── philippine_holidays.py    # Official-calendar loading, refresh, and rules
+├── philippine_holidays.json  # Bundled verified 2026 nationwide calendar
 ├── setup_daily_task.ps1      # Dependency check and Task Scheduler installer
+├── tests/                    # Holiday-rule and calendar-parser tests
 ├── requirements.txt          # Python runtime dependencies
 ├── README.md                 # Project documentation
 └── .gitignore                # Excludes local runtime data and generated output
@@ -612,6 +708,7 @@ Files produced locally at runtime include:
 - `.runtime/` or `.venv/` — optional local Python environments
 - `.wechat_last_sent` — legacy/local state, if present
 - `.wechat_easy_config.json` — locally saved beginner contact and schedule
+- `.philippine_holiday_cache.json` — refreshed future-year official calendar
 
 These local files are intentionally excluded from Git by the included
 `.gitignore` because screenshots and logs may contain private information.
@@ -623,6 +720,8 @@ Windows machine are the most meaningful integration tests. Before committing a
 change, run:
 
 ```powershell
+python -m unittest discover -s .\tests -t .
+python -m py_compile .\philippine_holidays.py
 python -m py_compile .\send_wechat_time.py
 python .\send_wechat_time.py --help
 python .\send_wechat_time.py --check `
