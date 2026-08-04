@@ -64,7 +64,7 @@ DEFAULT_PREVIEW_FILE = APP_DIR / "timeout_screenshot_preview.png"
 
 DEFAULT_CONTACT_NAME = os.getenv("WECHAT_CONTACT", "Attedance Recording")
 DEFAULT_SEND_TIME = os.getenv("WECHAT_SEND_TIME", "18:00")
-DEFAULT_GRACE_MINUTES = 5
+DEFAULT_GRACE_MINUTES = 0
 DEFAULT_CAPTURE_WIDTH = 500
 DEFAULT_CAPTURE_HEIGHT = 660
 WECHAT_PROCESS_NAMES = {"wechat.exe", "weixin.exe"}
@@ -466,6 +466,10 @@ def inside_schedule_window(
     grace_minutes: int,
 ) -> bool:
     scheduled = datetime.combine(now.date(), scheduled_time)
+    if grace_minutes == 0:
+        # Exact-time mode permits normal Task Scheduler/UI startup latency
+        # during the scheduled clock minute, but never a later-minute catch-up.
+        return scheduled <= now < scheduled + timedelta(minutes=1)
     return scheduled <= now <= scheduled + timedelta(minutes=grace_minutes)
 
 
@@ -533,6 +537,16 @@ def positive_int(value: str) -> int:
     return number
 
 
+def nonnegative_int(value: str) -> int:
+    try:
+        number = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("Expected a whole number.") from error
+    if number < 0:
+        raise argparse.ArgumentTypeError("Expected zero or a positive number.")
+    return number
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     mode = parser.add_mutually_exclusive_group(required=True)
@@ -570,9 +584,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--grace-minutes",
-        type=positive_int,
+        type=nonnegative_int,
         default=DEFAULT_GRACE_MINUTES,
-        help="How many minutes a delayed scheduled run may still send (default: 5).",
+        help=(
+            "How many minutes a delayed scheduled run may still send; "
+            "0 permits only the scheduled clock minute (default: 0)."
+        ),
     )
     parser.add_argument(
         "--draft-only",

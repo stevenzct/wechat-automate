@@ -58,10 +58,203 @@ function Resolve-PythonPath {
     return $null
 }
 
+function Refresh-ProcessPath {
+    $pathValues = @(
+        $env:Path
+        [Environment]::GetEnvironmentVariable("Path", "User")
+        [Environment]::GetEnvironmentVariable("Path", "Machine")
+    ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    $env:Path = $pathValues -join ";"
+}
+
+function Resolve-WingetPath {
+    $wingetCommand = Get-Command winget.exe -ErrorAction SilentlyContinue
+    if ($wingetCommand) {
+        return $wingetCommand.Source
+    }
+
+    if ($env:LOCALAPPDATA) {
+        $appAlias = Join-Path $env:LOCALAPPDATA "Microsoft\WindowsApps\winget.exe"
+        try {
+            if (Test-Path -LiteralPath $appAlias) {
+                return $appAlias
+            }
+        }
+        catch {
+            # Continue to the packaged App Installer lookup.
+        }
+    }
+
+    try {
+        $appInstaller = Get-AppxPackage -Name Microsoft.DesktopAppInstaller |
+            Sort-Object Version -Descending |
+            Select-Object -First 1
+        if ($appInstaller.InstallLocation) {
+            $packagedWinget = Join-Path $appInstaller.InstallLocation "winget.exe"
+            if (Test-Path -LiteralPath $packagedWinget) {
+                return $packagedWinget
+            }
+        }
+    }
+    catch {
+        # The caller provides a beginner-friendly recovery message.
+    }
+
+    return $null
+}
+
+function Get-WeChatExecutablePath {
+    $candidates = @()
+    if ($env:WECHAT_PATH) {
+        $candidates += $env:WECHAT_PATH
+    }
+    if ($env:ProgramFiles) {
+        $candidates += (Join-Path $env:ProgramFiles "Tencent\Weixin\Weixin.exe")
+        $candidates += (Join-Path $env:ProgramFiles "Tencent\WeChat\WeChat.exe")
+    }
+    if (${env:ProgramFiles(x86)}) {
+        $candidates += (Join-Path ${env:ProgramFiles(x86)} "Tencent\WeChat\WeChat.exe")
+    }
+    if ($env:LOCALAPPDATA) {
+        $candidates += (Join-Path $env:LOCALAPPDATA "Tencent\Weixin\Weixin.exe")
+        $candidates += (Join-Path $env:LOCALAPPDATA "Tencent\WeChat\WeChat.exe")
+    }
+
+    foreach ($candidate in $candidates) {
+        if ($candidate -and (Test-Path -LiteralPath $candidate)) {
+            return (Resolve-Path -LiteralPath $candidate).Path
+        }
+    }
+    return $null
+}
+
+function Install-WingetPackage {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$WingetPath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$PackageId,
+
+        [Parameter(Mandatory = $true)]
+        [string]$DisplayName
+    )
+
+    Write-Host ""
+    Write-Host "Downloading and installing $DisplayName..." -ForegroundColor Cyan
+    $wingetArguments = @(
+        "install"
+        "--id", $PackageId
+        "--exact"
+        "--source", "winget"
+        "--accept-source-agreements"
+        "--accept-package-agreements"
+        "--silent"
+        "--disable-interactivity"
+    )
+    $installOutput = & $WingetPath @wingetArguments 2>&1
+    $installExitCode = $LASTEXITCODE
+    $installOutput | ForEach-Object { Write-Host $_ }
+    if ($installExitCode -ne 0) {
+        throw "$DisplayName could not be installed automatically (winget exit code $installExitCode)."
+    }
+}
+
+function Ensure-RequiredApplications {
+    $pythonPath = Resolve-PythonPath
+    $wechatPath = Get-WeChatExecutablePath
+    $missingApplications = @()
+    if (-not $pythonPath) {
+        $missingApplications += "Python 3"
+    }
+    if (-not $wechatPath) {
+        $missingApplications += "WeChat/Weixin desktop"
+    }
+
+    if ($missingApplications.Count -eq 0) {
+        Write-Host "Python and WeChat/Weixin are already installed." -ForegroundColor Green
+        return $true
+    }
+
+    Write-Host "The installer found missing required app(s):" -ForegroundColor Yellow
+    $missingApplications | ForEach-Object { Write-Host "  - $_" }
+    Write-Host ""
+    Write-Host "INSTALL.bat can download them from the official Windows Package Manager."
+    Write-Host "A Windows permission prompt may appear during installation."
+    Write-Host ""
+    $confirmation = Read-Host "Type YES to download and install the missing app(s)"
+    if ($confirmation -cne "YES") {
+        Write-Host "Installation cancelled. Nothing was downloaded." -ForegroundColor Yellow
+        return $false
+    }
+
+    $wingetPath = Resolve-WingetPath
+    if (-not $wingetPath) {
+        try {
+            Start-Process "ms-windows-store://pdp/?ProductId=9NBLGGH4NNS1"
+        }
+        catch {
+            # The instructions below remain useful if the Store cannot open.
+        }
+        throw "Windows Package Manager is missing. The Microsoft Store was opened to App Installer. Install or update App Installer, then run INSTALL.bat again."
+    }
+
+    if (-not $pythonPath) {
+        Install-WingetPackage `
+            -WingetPath $wingetPath `
+            -PackageId "Python.Python.3.13" `
+            -DisplayName "Python 3.13"
+        Refresh-ProcessPath
+        $pythonPath = Resolve-PythonPath
+        if (-not $pythonPath) {
+            throw "Python was installed but could not be detected yet. Restart Windows, then run INSTALL.bat again."
+        }
+    }
+
+    if (-not $wechatPath) {
+        Install-WingetPackage `
+            -WingetPath $wingetPath `
+            -PackageId "Tencent.WeChat.Universal" `
+            -DisplayName "WeChat for Windows"
+        $wechatPath = Get-WeChatExecutablePath
+        if (-not $wechatPath) {
+            throw "WeChat was installed but its executable could not be detected. Restart Windows, then run INSTALL.bat again."
+        }
+    }
+
+    Write-Host ""
+    Write-Host "All required applications are installed." -ForegroundColor Green
+    return $true
+}
+
+function Wait-ForWeChatSignin {
+    $wechatPath = Get-WeChatExecutablePath
+    if (-not $wechatPath) {
+        throw "WeChat/Weixin could not be found after the prerequisite check."
+    }
+
+    $wechatProcess = Get-Process -Name WeChat, Weixin -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if (-not $wechatProcess) {
+        try {
+            Start-Process -FilePath $wechatPath
+        }
+        catch {
+            throw "WeChat is installed but could not be opened. Open it manually, then run INSTALL.bat again."
+        }
+    }
+
+    Write-Host ""
+    Write-Host "WeChat must be signed in before setup can continue." -ForegroundColor Cyan
+    Write-Host "If WeChat asks, scan the QR code or approve the login on your phone."
+    Write-Host "INSTALL.bat will never ask for your WeChat password."
+    [void](Read-Host "When the main WeChat chat window is open, press Enter here")
+}
+
 function Get-RequiredPythonPath {
     $pythonPath = Resolve-PythonPath
     if (-not $pythonPath) {
-        throw "Python 3 was not found. Install Python from python.org, select 'Add Python to PATH', and then double-click INSTALL.bat."
+        throw "Python 3 was not found. Double-click INSTALL.bat first; it can install Python automatically."
     }
     return $pythonPath
 }
@@ -114,36 +307,24 @@ function Read-SendTime {
     }
 }
 
-function Read-GraceMinutes {
-    param([int]$DefaultValue)
-
-    while ($true) {
-        $value = Read-Host "Allowed delay in minutes (1 to 60) [$DefaultValue]"
-        if ([string]::IsNullOrWhiteSpace($value)) {
-            return $DefaultValue
-        }
-
-        $parsedValue = 0
-        if ([int]::TryParse($value, [ref]$parsedValue) -and
-            $parsedValue -ge 1 -and $parsedValue -le 60) {
-            return $parsedValue
-        }
-        Write-Host "Enter a whole number from 1 to 60." -ForegroundColor Yellow
-    }
-}
-
 function Install-Automation {
     Show-Header "Beginner installation"
 
     Write-Host "This will install the required Python packages and create a"
     Write-Host "Monday-to-Friday Windows scheduled task for your account."
+    Write-Host "Late task starts after the scheduled clock minute will be skipped."
     Write-Host "It will not send a WeChat message during installation."
+    Write-Host ""
+
+    if (-not (Ensure-RequiredApplications)) {
+        return
+    }
+    Wait-ForWeChatSignin
     Write-Host ""
 
     $savedConfig = Get-SavedConfig
     $defaultContact = "Attedance Recording"
     $defaultTime = "18:00"
-    $defaultGrace = 5
 
     if ($savedConfig) {
         if (-not [string]::IsNullOrWhiteSpace([string]$savedConfig.contact)) {
@@ -152,23 +333,18 @@ function Install-Automation {
         if ([string]$savedConfig.send_time -match "^(?:[01]\d|2[0-3]):[0-5]\d$") {
             $defaultTime = [string]$savedConfig.send_time
         }
-        $savedGrace = 0
-        if ([int]::TryParse([string]$savedConfig.grace_minutes, [ref]$savedGrace) -and
-            $savedGrace -ge 1 -and $savedGrace -le 60) {
-            $defaultGrace = $savedGrace
-        }
     }
 
     $contact = Read-ContactName -DefaultValue $defaultContact
     Write-Host ""
     $sendTime = Read-SendTime -DefaultValue $defaultTime
-    $graceMinutes = Read-GraceMinutes -DefaultValue $defaultGrace
+    $graceMinutes = 0
 
     Write-Host ""
     Write-Host "Please confirm:" -ForegroundColor Cyan
     Write-Host "  WeChat contact: $contact"
     Write-Host "  Weekdays at:    $sendTime"
-    Write-Host "  Allowed delay:  $graceMinutes minute(s)"
+    Write-Host "  Late starts:    skipped after the $sendTime clock minute"
     Write-Host ""
     $confirmation = Read-Host "Type YES to install"
     if ($confirmation -cne "YES") {

@@ -34,8 +34,8 @@ can be installed as a Monday-to-Friday Windows scheduled task.
 - Captures a configurable bottom-right screen region with the Windows calendar
   open; the default crop is `500 × 660` pixels.
 - Supports full-primary-screen captures when required.
-- Sends immediately, creates a safe unsent draft, or runs only within a
-  scheduled grace period.
+- Sends immediately, creates a safe unsent draft, or runs only during the
+  scheduled clock minute.
 - Includes guided, double-clickable Windows helpers for installation, preview,
   and unsent draft testing.
 - Installs a weekday task through Windows Task Scheduler.
@@ -64,9 +64,9 @@ can be installed as a Monday-to-Friday Windows scheduled task.
 7. Draft mode stops here. Otherwise, the script sends with `Alt+S` so it works
    regardless of the user's Enter-key preference in WeChat.
 
-Scheduled runs add two checks before capture: an optional weekday check and a
-time window check. A run outside the configured send time plus grace period is
-logged and skipped.
+Scheduled runs add two checks before capture: an optional weekday check and an
+exact-minute check. By default, a task scheduled for `18:00` may start during
+the `18:00` clock minute, but a start at `18:01` or later is logged and skipped.
 
 ## Requirements
 
@@ -93,25 +93,70 @@ No programming or command typing is required for the normal setup. The included
 
 ### Before you begin
 
-1. Install Python 3 from [python.org](https://www.python.org/downloads/windows/).
-   During installation, select **Add Python to PATH**.
-2. Install WeChat or Weixin for Windows, open it, and sign in.
-3. On this GitHub repository page, select **Code → Download ZIP**.
-4. Extract the downloaded ZIP to a permanent folder. Do not run the files from
-   inside the ZIP, and do not move the folder after installing the schedule.
+The user only needs to download this project:
 
-If Python was just installed and `INSTALL.bat` cannot find it, restart Windows
-once and try again.
+**[Download the complete project ZIP](https://github.com/stevenzct/wechat-automate/archive/refs/heads/main.zip)**
+
+Open the downloaded ZIP, select **Extract All**, and move the extracted folder
+to a permanent location such as `Documents`. Do not run `INSTALL.bat` from
+inside the ZIP.
+
+`INSTALL.bat` automatically checks for Python and WeChat/Weixin. If either app
+is missing, it lists what is needed and asks the user to type `YES`. It then
+downloads and installs the missing apps through the official Windows Package
+Manager. A Windows permission prompt may appear.
+
+The user does not need to find separate Python or WeChat download pages.
+However, the following are still required:
+
+- A Windows 11 computer with an internet connection
+- Windows Package Manager (`winget`), normally included with Windows 11
+- An existing WeChat/Weixin account
+- A phone available to scan or approve the WeChat desktop sign-in
+
+If Windows Package Manager is missing, `INSTALL.bat` opens the Microsoft Store
+page for **App Installer**. Install or update it, then run `INSTALL.bat` again.
+
+The project ZIP already includes every automation file a non-coder needs:
+
+- `INSTALL.bat`
+- `TEST_PREVIEW.bat`
+- `TEST_DRAFT.bat`
+- `easy_setup.ps1`
+- `setup_daily_task.ps1`
+- `send_wechat_time.py`
+- `requirements.txt`
+
+Do **not** download Git, GitHub Desktop, PowerShell, Windows Task Scheduler, or
+the Python packages individually. Git is unnecessary for normal use;
+PowerShell and Task Scheduler are included with Windows; and `INSTALL.bat`
+automatically installs PyAutoGUI, Pillow, pyperclip, and pywin32.
+
+Complete this checklist before running the installer:
+
+- [ ] The computer is running Windows 11 and connected to the internet.
+- [ ] The user has a working WeChat/Weixin account and their phone nearby.
+- [ ] The project ZIP has been fully extracted.
+- [ ] The extracted project folder is in a permanent location.
+- [ ] The user understands that WeChat sign-in must be completed manually.
+
+If automatic installation reports that an app cannot be detected yet, restart
+Windows once and run `INSTALL.bat` again.
 
 ### Step 1: Install the weekday schedule
 
-Double-click [`INSTALL.bat`](INSTALL.bat).
+Double-click [`INSTALL.bat`](INSTALL.bat). It performs the following steps:
+
+1. Detect Python and WeChat/Weixin.
+2. Ask permission to download and install any missing required apps.
+3. Open WeChat and wait while the user signs in manually.
+4. Ask for the contact and weekday time.
+5. Install the required Python packages and create the scheduled task.
 
 The guided installer asks for:
 
 - The exact WeChat contact or group name
 - The weekday send time, such as `18:00` for 6:00 PM
-- The number of minutes a delayed run is still allowed to send
 
 Review the displayed settings and type `YES` when asked to confirm. The helper
 then installs the Python packages, checks the computer, and creates the
@@ -122,8 +167,8 @@ The choices are saved locally in `.wechat_easy_config.json` so the testing
 helper can suggest the same contact. This file is excluded from Git and should
 not be uploaded because it can contain a private contact or group name.
 
-To change the contact, time, or allowed delay later, double-click `INSTALL.bat`
-again. The existing scheduled task will be updated.
+To change the contact or time later, double-click `INSTALL.bat` again. The
+existing scheduled task will be updated.
 
 ### Step 2: Check the screenshot safely
 
@@ -154,6 +199,22 @@ At the scheduled weekday time:
 - Keep WeChat signed in.
 - Avoid using the mouse or keyboard while the automation is running.
 
+### What happens after successful installation
+
+`INSTALL.bat` creates a permanent Windows scheduled task for the current user.
+The user does not need to open this project or run `INSTALL.bat` every day.
+
+- The task runs automatically Monday through Friday at the selected time.
+- It remains installed after Windows restarts.
+- A task set for `18:00` is accepted only while the clock still reads `18:00`.
+- If the computer is asleep, locked, turned off, or starts the task at `18:01`
+  or later, that day's message is skipped instead of being sent late.
+- The same Windows user must be signed in, and WeChat must remain signed in.
+- The project folder must not be moved, renamed, or deleted after installation
+  because Task Scheduler stores its full location.
+- Running `INSTALL.bat` again safely updates the existing task rather than
+  creating a duplicate.
+
 There is intentionally no double-clickable real-send test. This reduces the
 risk of a non-technical user accidentally sending a screenshot to the wrong
 conversation. Advanced users can perform a real manual send with the PowerShell
@@ -161,7 +222,7 @@ command documented below.
 
 | Beginner file | What it does | Can it send? |
 | --- | --- | --- |
-| `INSTALL.bat` | Installs dependencies, validates the setup, and creates or updates the weekday task. | No message is sent during setup. |
+| `INSTALL.bat` | Installs missing Python/WeChat apps, installs dependencies, validates the setup, and creates or updates the weekday task. | No message is sent during setup. |
 | `TEST_PREVIEW.bat` | Captures and opens a local preview without opening WeChat. | No. |
 | `TEST_DRAFT.bat` | Pastes the image into a selected WeChat conversation as an unsent draft. | No; it never presses Send. |
 
@@ -263,7 +324,7 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -File .\setup_daily_task.ps1 `
   -ContactName "Exact WeChat Contact Name" `
   -SendTime "18:00" `
-  -GraceMinutes 5
+  -GraceMinutes 0
 ```
 
 The task runs Monday through Friday and uses an interactive, limited-privilege
@@ -298,7 +359,7 @@ after registration; Task Scheduler stores absolute paths.
 | --- | --- | --- |
 | `-ContactName` | `Attedance Recording` | Exact WeChat contact or group name to search for. The default spelling matches the current source code. |
 | `-SendTime` | `18:00` | Weekday send time in 24-hour `HH:MM` format. |
-| `-GraceMinutes` | `5` | How long after the scheduled time a delayed run is still allowed to send; valid setup range is 1–60 minutes. |
+| `-GraceMinutes` | `0` | Optional late-send window. `0` allows only the scheduled clock minute; advanced users may choose 1–60 minutes. |
 
 ### Environment variables
 
@@ -324,7 +385,8 @@ Then run setup again so its validation uses the new value.
 For direct Python execution, explicit command-line values override environment
 defaults. The setup script always stores its `-ContactName`, `-SendTime`, and
 `-GraceMinutes` values as explicit task arguments, so those scheduled values
-take precedence over `WECHAT_CONTACT` and `WECHAT_SEND_TIME`.
+take precedence over `WECHAT_CONTACT` and `WECHAT_SEND_TIME`. The beginner
+installer always uses `-GraceMinutes 0` to prevent later-minute catch-up sends.
 
 ## Command-line reference
 
@@ -345,7 +407,7 @@ Exactly one mode is required for each invocation.
 | --- | --- | --- |
 | `--contact NAME` | `WECHAT_CONTACT` or `Attedance Recording` | Exact contact/group name entered into WeChat search. |
 | `--send-time HH:MM` | `WECHAT_SEND_TIME` or `18:00` | Time used by `--scheduled`. |
-| `--grace-minutes N` | `5` | Positive number of minutes after the scheduled time during which sending is permitted. |
+| `--grace-minutes N` | `0` | Optional non-negative late-send window. `0` permits only the scheduled clock minute. |
 | `--weekdays-only` | Off | With `--scheduled`, skip Saturday and Sunday. |
 | `--draft-only` | Off | Paste but do not send. Valid only with `--send-now` or `--scheduled`. |
 | `--full-screen` | Off | Capture the whole primary display rather than the bottom-right crop. |
@@ -366,11 +428,11 @@ task:
 python .\send_wechat_time.py --scheduled --weekdays-only `
   --contact "Attedance Recording" `
   --send-time "18:00" `
-  --grace-minutes 5
+  --grace-minutes 0
 ```
 
-Running that command outside `18:00` through `18:05` logs a skip and exits
-successfully without capturing or sending.
+Running that command before `18:00` or at `18:01` and later logs a skip and
+exits successfully without capturing or sending.
 
 ## Manage the scheduled task
 
@@ -390,8 +452,8 @@ Disable-ScheduledTask -TaskName "Send WeChat Attendance Screenshot at 6 PM"
 Enable-ScheduledTask -TaskName "Send WeChat Attendance Screenshot at 6 PM"
 ```
 
-Update the contact, time, or grace period by running
-`setup_daily_task.ps1` again with the new values.
+Update the contact or time by running `setup_daily_task.ps1` again with the new
+values.
 
 Remove the task:
 
@@ -508,11 +570,11 @@ unique if necessary, then validate with `--draft-only`.
 
 ### The task did not send after the computer woke up
 
-The task is configured with `StartWhenAvailable`, but the Python script accepts
-late scheduled runs only inside the grace window. If Windows starts it after
-that window, the run is safely skipped. Check Task Scheduler history and
-`wechat_sender.log`, then increase `-GraceMinutes` and reinstall the task if a
-longer delay is acceptable.
+The task is configured with `StartWhenAvailable`, but exact-time mode accepts a
+scheduled run only during the configured clock minute. If Windows starts it in
+a later minute, the run is safely skipped. Check Task Scheduler history and
+`wechat_sender.log`. Keep the computer awake and unlocked before the scheduled
+time because later catch-up sends are disabled.
 
 ### The task works manually but not in Task Scheduler
 

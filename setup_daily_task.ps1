@@ -9,8 +9,8 @@ param(
     [string]$SendTime = "18:00",
 
     [Parameter()]
-    [ValidateRange(1, 60)]
-    [int]$GraceMinutes = 5
+    [ValidateRange(0, 60)]
+    [int]$GraceMinutes = 0
 )
 
 $ErrorActionPreference = "Stop"
