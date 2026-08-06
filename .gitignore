@@ -13,6 +13,8 @@ dist/
 # Runtime logs and local state
 *.log
 .wechat_last_sent
+.wechat_last_time_in
+.wechat_last_time_in.*.tmp
 .wechat_easy_config.json
 .philippine_holiday_cache.json
 .philippine_holiday_cache.json.tmp

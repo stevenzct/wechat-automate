@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet("Install", "Preview", "Draft", "Disable")]
+    [ValidateSet("Install", "Preview", "Draft", "TimeInTest", "Disable")]
     [string]$Action
 )
 
@@ -12,7 +12,9 @@ $senderPath = Join-Path $projectPath "send_wechat_time.py"
 $setupPath = Join-Path $projectPath "setup_daily_task.ps1"
 $previewPath = Join-Path $projectPath "timeout_screenshot_preview.png"
 $configPath = Join-Path $projectPath ".wechat_easy_config.json"
-$taskName = "Send WeChat Attendance Screenshot at 6 PM"
+$timeOutTaskName = "Send WeChat Attendance Screenshot at 6 PM"
+$timeInTaskName = "Send WeChat Attendance Time In at Laptop Open"
+$taskNames = @($timeOutTaskName, $timeInTaskName)
 
 function Show-Header {
     param([string]$Title)
@@ -311,11 +313,13 @@ function Read-SendTime {
 function Install-Automation {
     Show-Header "Beginner installation"
 
-    Write-Host "This will install the required Python packages and create a"
-    Write-Host "Monday-to-Friday Windows scheduled task for your account."
+    Write-Host "This will install the required Python packages and create two"
+    Write-Host "Windows scheduled tasks for your account."
+    Write-Host "Time-in runs once when you sign in or unlock the laptop."
+    Write-Host "Time-out runs Monday to Friday at the selected clock time."
     Write-Host "Regular and special non-working Philippine holidays are skipped."
     Write-Host "Special working holidays continue as normal workdays."
-    Write-Host "Late task starts after the scheduled clock minute will be skipped."
+    Write-Host "Late time-out starts after the scheduled clock minute will be skipped."
     Write-Host "It will not send a WeChat message during installation."
     Write-Host ""
 
@@ -346,9 +350,10 @@ function Install-Automation {
     Write-Host ""
     Write-Host "Please confirm:" -ForegroundColor Cyan
     Write-Host "  WeChat contact: $contact"
-    Write-Host "  Weekdays at:    $sendTime"
+    Write-Host "  Time-in:        after laptop sign-in or unlock (once per day)"
+    Write-Host "  Time-out:       weekdays at $sendTime"
     Write-Host "  PH holidays:    skip regular and special non-working only"
-    Write-Host "  Late starts:    skipped after the $sendTime clock minute"
+    Write-Host "  Late time-out:  skipped after the $sendTime clock minute"
     Write-Host ""
     $confirmation = Read-Host "Type YES to install"
     if ($confirmation -cne "YES") {
@@ -373,9 +378,10 @@ function Install-Automation {
 
     Write-Host ""
     Write-Host "Installation completed." -ForegroundColor Green
+    Write-Host "Time-in and time-out both skip weekends and non-working holidays."
     Write-Host "Holiday protection is active and refreshes future official calendars."
     Write-Host "Next, double-click TEST_PREVIEW.bat to inspect the screenshot."
-    Write-Host "After that, double-click TEST_DRAFT.bat to verify the WeChat chat."
+    Write-Host "Then use TEST_TIME_IN.bat to verify the safe time-in flow."
 }
 
 function Show-Preview {
@@ -411,7 +417,7 @@ function Create-Draft {
     Show-Header "Safe WeChat draft test"
 
     Write-Host "This test opens WeChat, selects a conversation, and pastes the image."
-    Write-Host "It DOES NOT press Send." -ForegroundColor Green
+    Write-Host "It does not invoke WeChat's Alt+S send shortcut." -ForegroundColor Green
     Write-Host "You must inspect and delete the draft manually afterward."
     Write-Host ""
 
@@ -426,7 +432,7 @@ function Create-Draft {
     Write-Host ""
     Write-Host "Before continuing:" -ForegroundColor Cyan
     Write-Host "  1. Open WeChat and sign in."
-    Write-Host "  2. Close pop-ups or dialogs."
+    Write-Host "  2. Clear any existing chat draft, pop-up, or dialog."
     Write-Host "  3. Stop using the mouse and keyboard during the test."
     Write-Host "  4. Confirm the pasted image is in the correct chat afterward."
     Write-Host ""
@@ -451,19 +457,73 @@ function Create-Draft {
     Write-Host "Check the conversation now, then delete the draft manually."
 }
 
+function Test-TimeIn {
+    Show-Header "Safe time-in verification"
+
+    Write-Host "This follows the same weekday and Philippine holiday rules as"
+    Write-Host "the automatic time-in task."
+    Write-Host "On an eligible workday, it opens WeChat and pastes the screenshot"
+    Write-Host "as a draft. It does not invoke WeChat's Alt+S send shortcut." -ForegroundColor Green
+    Write-Host "It does not read or change the once-per-day time-in marker."
+    Write-Host "On a weekend or non-working holiday, it safely stops before capture."
+    Write-Host ""
+
+    $savedConfig = Get-SavedConfig
+    $defaultContact = "Attedance Recording"
+    if ($savedConfig -and
+        -not [string]::IsNullOrWhiteSpace([string]$savedConfig.contact)) {
+        $defaultContact = [string]$savedConfig.contact
+    }
+
+    $contact = Read-ContactName -DefaultValue $defaultContact
+    Write-Host ""
+    Write-Host "Before continuing:" -ForegroundColor Cyan
+    Write-Host "  1. Open WeChat and sign in."
+    Write-Host "  2. Clear any existing chat draft, pop-up, or dialog."
+    Write-Host "  3. Stop using the mouse and keyboard during the test."
+    Write-Host "  4. If a draft is pasted, verify the chat and delete it afterward."
+    Write-Host ""
+    $confirmation = Read-Host "Type YES to run the safe time-in test"
+    if ($confirmation -cne "YES") {
+        Write-Host "Time-in test cancelled. Nothing was pasted or sent." -ForegroundColor Yellow
+        return
+    }
+
+    Write-Host ""
+    Write-Host "Starting in 3 seconds..."
+    Start-Sleep -Seconds 3
+
+    $pythonPath = Get-RequiredPythonPath
+    & $pythonPath $senderPath --time-in --draft-only --contact $contact
+    if ($LASTEXITCODE -ne 0) {
+        throw "The time-in test failed. Review wechat_sender.log and clear any partial draft in WeChat."
+    }
+
+    Write-Host ""
+    Write-Host "The safe time-in test completed." -ForegroundColor Green
+    Write-Host "If today is an eligible workday, inspect and delete the unsent draft."
+    Write-Host "If the output said today was skipped, no screenshot or draft was created."
+    Write-Host "Your real once-per-day time-in record was not changed."
+}
+
 function Disable-Automation {
     Show-Header "Disable automatic sending"
 
-    $scheduledTask = Get-ScheduledTask `
-        -TaskName $taskName `
-        -ErrorAction SilentlyContinue
-    if (-not $scheduledTask) {
-        Write-Host "No installed WeChat attendance task was found." -ForegroundColor Yellow
+    $scheduledTasks = @(
+        foreach ($installedTaskName in $taskNames) {
+            Get-ScheduledTask `
+                -TaskName $installedTaskName `
+                -ErrorAction SilentlyContinue
+        }
+    )
+    if ($scheduledTasks.Count -eq 0) {
+        Write-Host "No installed WeChat attendance tasks were found." -ForegroundColor Yellow
         Write-Host "Nothing needs to be disabled."
         return
     }
 
-    if ($scheduledTask.State -eq "Disabled") {
+    $enabledTasks = @($scheduledTasks | Where-Object { $_.State -ne "Disabled" })
+    if ($enabledTasks.Count -eq 0) {
         Write-Host "Automatic sending is already disabled." -ForegroundColor Green
         Write-Host "Run INSTALL.bat if you want to enable it again."
         return
@@ -475,11 +535,13 @@ function Disable-Automation {
     Write-Host ""
     $confirmation = Read-Host "Type YES to disable automatic sending"
     if ($confirmation -cne "YES") {
-        Write-Host "Disable cancelled. The scheduled task is still active." -ForegroundColor Yellow
+        Write-Host "Disable cancelled. The scheduled tasks are still active." -ForegroundColor Yellow
         return
     }
 
-    Disable-ScheduledTask -TaskName $taskName | Out-Null
+    foreach ($scheduledTask in $enabledTasks) {
+        Disable-ScheduledTask -TaskName $scheduledTask.TaskName | Out-Null
+    }
     Write-Host ""
     Write-Host "Automatic sending is now disabled." -ForegroundColor Green
     Write-Host "No future scheduled messages will run unless INSTALL.bat is used again."
@@ -490,6 +552,7 @@ try {
         "Install" { Install-Automation }
         "Preview" { Show-Preview }
         "Draft" { Create-Draft }
+        "TimeInTest" { Test-TimeIn }
         "Disable" { Disable-Automation }
     }
 }

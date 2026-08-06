@@ -9,9 +9,10 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 from ctypes import wintypes
-from datetime import datetime, time as clock_time, timedelta
+from datetime import date, datetime, time as clock_time, timedelta
 from io import BytesIO
 from pathlib import Path
 
@@ -70,6 +71,7 @@ from philippine_holidays import check_philippine_holiday
 APP_DIR = SCRIPT_DIR
 LOG_FILE = APP_DIR / "wechat_sender.log"
 DEFAULT_PREVIEW_FILE = APP_DIR / "timeout_screenshot_preview.png"
+TIME_IN_MARKER_FILE = APP_DIR / ".wechat_last_time_in"
 
 DEFAULT_CONTACT_NAME = os.getenv("WECHAT_CONTACT", "Attedance Recording")
 DEFAULT_SEND_TIME = os.getenv("WECHAT_SEND_TIME", "18:00")
@@ -482,6 +484,94 @@ def inside_schedule_window(
     return scheduled <= now <= scheduled + timedelta(minutes=grace_minutes)
 
 
+def weekday_rule_allows(day: date, *, weekdays_only: bool) -> bool:
+    """Return whether an automatic run passes its weekday rule."""
+    if weekdays_only and day.weekday() >= 5:
+        logging.warning("Today is a weekend; skipping the weekday task.")
+        return False
+    return True
+
+
+def philippine_holiday_rule_allows(day: date) -> bool:
+    """Return whether verified nationwide holiday data permits an automatic run."""
+    holiday_check = check_philippine_holiday(day)
+    if holiday_check.refresh_warning:
+        logging.warning(
+            "%s Continuing with %s.",
+            holiday_check.refresh_warning,
+            holiday_check.source_description,
+        )
+    if not holiday_check.known_year:
+        logging.warning(
+            "No verified nationwide Philippine holiday calendar is available "
+            "for %s; skipping rather than guessing that today is a workday.",
+            day.year,
+        )
+        return False
+    if holiday_check.holiday and holiday_check.holiday.is_non_working:
+        logging.info(
+            "Today is %s (%s); skipping the scheduled workday message.",
+            holiday_check.holiday.name,
+            holiday_check.holiday.display_type,
+        )
+        return False
+    if holiday_check.holiday:
+        logging.info(
+            "Today is %s (%s); this is a working day, so the scheduled "
+            "message will continue.",
+            holiday_check.holiday.name,
+            holiday_check.holiday.display_type,
+        )
+    return True
+
+
+def time_in_was_sent_on(day: date, marker_path: Path = TIME_IN_MARKER_FILE) -> bool:
+    """Return whether the time-in marker records an actual send on ``day``."""
+    try:
+        marker_value = marker_path.read_text(encoding="ascii").strip()
+    except FileNotFoundError:
+        return False
+    except OSError as error:
+        raise RuntimeError(f"The time-in marker could not be read: {error}") from error
+
+    try:
+        marker_day = date.fromisoformat(marker_value)
+    except ValueError as error:
+        raise RuntimeError(
+            f"The time-in marker contains an invalid date: {marker_value!r}."
+        ) from error
+    return marker_day == day
+
+
+def record_time_in_sent(day: date, marker_path: Path = TIME_IN_MARKER_FILE) -> None:
+    """Atomically record that an actual time-in send completed on ``day``."""
+    marker_path = marker_path.resolve()
+    marker_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path: Path | None = None
+
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="ascii",
+            newline="\n",
+            dir=marker_path.parent,
+            prefix=f"{marker_path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temporary_file:
+            temporary_path = Path(temporary_file.name)
+            temporary_file.write(f"{day.isoformat()}\n")
+            temporary_file.flush()
+            os.fsync(temporary_file.fileno())
+        os.replace(temporary_path, marker_path)
+    finally:
+        if temporary_path is not None:
+            try:
+                temporary_path.unlink()
+            except FileNotFoundError:
+                pass
+
+
 def deliver_screenshot(image, contact_name: str, *, draft_only: bool = False) -> None:
     """Select a WeChat conversation, paste the image, and optionally send it."""
     window_handle = activate_wechat()
@@ -565,6 +655,14 @@ def parse_args() -> argparse.Namespace:
         help="Send only inside the configured schedule window.",
     )
     mode.add_argument(
+        "--time-in",
+        action="store_true",
+        help=(
+            "Send one time-in per local workday, without requiring a configured "
+            "clock time."
+        ),
+    )
+    mode.add_argument(
         "--send-now",
         action="store_true",
         help="Capture and send immediately.",
@@ -608,7 +706,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--weekdays-only",
         action="store_true",
-        help="With --scheduled, skip Saturday and Sunday.",
+        help=(
+            "With --scheduled, skip Saturday and Sunday; --time-in always skips "
+            "weekends."
+        ),
     )
     parser.add_argument(
         "--full-screen",
@@ -667,13 +768,13 @@ def main() -> int:
     configure_logging()
     configure_dpi_awareness()
 
-    if args.draft_only and not (args.send_now or args.scheduled):
-        logging.error("--draft-only requires --send-now or --scheduled.")
+    if args.draft_only and not (args.send_now or args.scheduled or args.time_in):
+        logging.error("--draft-only requires --send-now, --scheduled, or --time-in.")
         return 2
 
     mutex_handle = acquire_single_instance_mutex()
     if mutex_handle is None:
-        if args.scheduled:
+        if args.scheduled or args.time_in:
             logging.warning("Another sender instance is already running; skipping.")
             return 0
         logging.error("Another sender instance is already running.")
@@ -684,10 +785,12 @@ def main() -> int:
             return run_check(args)
 
         now = datetime.now()
-        if args.scheduled:
-            if args.weekdays_only and now.weekday() >= 5:
-                logging.warning("Today is a weekend; skipping the weekday task.")
+        if args.scheduled or args.time_in:
+            weekdays_only = args.weekdays_only or args.time_in
+            if not weekday_rule_allows(now.date(), weekdays_only=weekdays_only):
                 return 0
+
+        if args.scheduled:
             if not inside_schedule_window(now, args.send_time, args.grace_minutes):
                 logging.warning(
                     "Not within the %s schedule window; skipping.",
@@ -695,36 +798,29 @@ def main() -> int:
                 )
                 return 0
 
-            holiday_check = check_philippine_holiday(now.date())
-            if holiday_check.refresh_warning:
-                logging.warning(
-                    "%s Continuing with %s.",
-                    holiday_check.refresh_warning,
-                    holiday_check.source_description,
-                )
-            if not holiday_check.known_year:
-                logging.warning(
-                    "No verified nationwide Philippine holiday calendar is "
-                    "available for %s; skipping rather than guessing that today "
-                    "is a workday.",
-                    now.year,
-                )
+        if args.scheduled or args.time_in:
+            if not philippine_holiday_rule_allows(now.date()):
                 return 0
-            if holiday_check.holiday and holiday_check.holiday.is_non_working:
-                logging.info(
-                    "Today is %s (%s); skipping the scheduled workday message.",
-                    holiday_check.holiday.name,
-                    holiday_check.holiday.display_type,
-                )
-                return 0
-            if holiday_check.holiday:
-                logging.info(
-                    "Today is %s (%s); this is a working day, so the scheduled "
-                    "message will continue.",
-                    holiday_check.holiday.name,
-                    holiday_check.holiday.display_type,
-                )
 
+        if args.time_in:
+            # A holiday refresh can span midnight. Re-evaluate the new local
+            # date before duplicate checking or capture so a late Friday run,
+            # for example, can never continue under Saturday's date using
+            # Friday's workday decision.
+            refreshed_now = datetime.now()
+            if refreshed_now.date() != now.date():
+                logging.info(
+                    "The local date changed during the time-in workday check; "
+                    "rechecking %s.",
+                    refreshed_now.date().isoformat(),
+                )
+                now = refreshed_now
+                if not weekday_rule_allows(now.date(), weekdays_only=True):
+                    return 0
+                if not philippine_holiday_rule_allows(now.date()):
+                    return 0
+
+        if args.scheduled:
             # A calendar refresh can use several seconds. Recheck exact-minute
             # mode so a refresh never turns an on-time start into a late send.
             now = datetime.now()
@@ -735,6 +831,18 @@ def main() -> int:
                     args.send_time.strftime("%H:%M"),
                 )
                 return 0
+
+        if (
+            args.time_in
+            and not args.draft_only
+            and time_in_was_sent_on(now.date(), TIME_IN_MARKER_FILE)
+        ):
+            logging.info(
+                "A time-in was already sent on %s; skipping the duplicate.",
+                now.date().isoformat(),
+            )
+            return 0
+
         screenshot = capture_timeout_screenshot(
             full_screen=args.full_screen,
             capture_width=args.capture_width,
@@ -750,6 +858,9 @@ def main() -> int:
         deliver_screenshot(screenshot, args.contact, draft_only=args.draft_only)
         if args.draft_only:
             return 0
+
+        if args.time_in:
+            record_time_in_sent(now.date(), TIME_IN_MARKER_FILE)
 
         logging.info(
             "Send shortcut submitted to %s at %s.",
