@@ -11,8 +11,69 @@ at a configured clock time.
 > input. The computer must be awake, unlocked, and signed in to WeChat when the
 > automation runs.
 
+## Visual quick start
+
+This is the short version for non-coders. Follow this section for normal setup
+and daily use; the longer sections below are reference and troubleshooting.
+
+> [!TIP]
+> [Download the complete project ZIP](https://github.com/stevenzct/wechat-automate/archive/refs/heads/main.zip),
+> select **Extract All**, and keep the extracted folder in a permanent place
+> such as `Documents`. You never need to open a `.py` or `.ps1` file.
+
+### Set up once
+
+[![Six-step visual setup guide: download and extract the project, run INSTALL.bat, sign in and choose settings, safely test the screenshot and time-in draft, then keep Windows and WeChat ready.](docs/quick-start.png)](docs/quick-start.png)
+
+Select the diagram to open it full size; on a phone, select it and zoom. After
+setup, there is no daily button to press.
+
+### What happens automatically
+
+[![Two-lane daily flow: time-in runs once after Windows sign-in or unlock and a 30-second wait; time-out runs only at the configured minute; both send only on eligible workdays and otherwise skip safely.](docs/daily-automation.png)](docs/daily-automation.png)
+
+Select the diagram to open it full size; on a phone, select it and zoom.
+
+### Which file should I double-click?
+
+| Order | File | What it does | Intentional send? |
+| --- | --- | --- | --- |
+| 1 — Set up | `INSTALL.bat` | Installs or updates both automatic tasks. | No |
+| 2 — Check the picture | `TEST_PREVIEW.bat` | Saves and opens the screenshot locally without opening WeChat. | No |
+| 3 — Test time-in | `TEST_TIME_IN.bat` | On an eligible workday, pastes a draft in the chosen chat. Verify it, then delete it. | No; draft-only mode omits `Alt+S` |
+| Optional — Test the chat any day | `TEST_DRAFT.bat` | Pastes a general draft without applying workday rules. | No; draft-only mode omits `Alt+S` |
+| Stop automation | `DISABLE.bat` | Disables both tasks without deleting settings or logs. | No |
+
+Clear existing chat input before a draft test. Draft-only automation still uses
+WeChat search keys, so inspect the selected chat and delete the pasted draft.
+`TEST_TIME_IN.bat` intentionally creates nothing on a weekend, nationwide
+non-working holiday, or unverified holiday year.
+
+### Will it run today?
+
+| Situation | Automatic result |
+| --- | --- |
+| Normal Monday–Friday | Time-in once after sign-in/unlock; time-out at the selected minute |
+| Saturday or Sunday | Both skip |
+| Nationwide Regular or Special (Non-Working) Holiday | Both skip |
+| Special (Working) Holiday | Both run normally |
+| Holiday year cannot be verified | Both skip rather than guess |
+| Laptop opens but Windows remains locked | Time-in does not start |
+| Computer is asleep or locked at the time-out minute | Time-out skips and is not sent late |
+
+> [!NOTE]
+> Only nationwide Philippine holidays are checked. For either automatic
+> message, keep Windows awake and unlocked, stay signed in to WeChat, and leave
+> the mouse and keyboard alone briefly. Opening the lid alone is not the
+> time-in trigger—Windows must complete sign-in or unlock.
+
+Need more help? Jump to [Easiest setup for non-coders](#easiest-setup-for-non-coders),
+[Safety, privacy, and limitations](#safety-privacy-and-limitations), or
+[Troubleshooting](#troubleshooting).
+
 ## Contents
 
+- [Visual quick start](#visual-quick-start)
 - [Features](#features)
 - [How it works](#how-it-works)
 - [Requirements](#requirements)
@@ -292,13 +353,8 @@ risk of a non-technical user accidentally sending a screenshot to the wrong
 conversation. Advanced users can perform a real manual send with the PowerShell
 command documented below.
 
-| Beginner file | What it does | Can it send? |
-| --- | --- | --- |
-| `INSTALL.bat` | Installs missing Python/WeChat apps, installs dependencies, validates the setup, and creates or updates the time-in and time-out tasks. | No message is sent during setup. |
-| `DISABLE.bat` | Requires confirmation, then disables both automatic tasks without deleting files or settings. | No. |
-| `TEST_PREVIEW.bat` | Captures and opens a local preview without opening WeChat. | No. |
-| `TEST_TIME_IN.bat` | Applies the real time-in workday rules and, when eligible, pastes a draft without changing the daily marker. | No intentional send; draft-only mode does not invoke `Alt+S`. |
-| `TEST_DRAFT.bat` | Pastes the image into a selected WeChat conversation in draft-only mode. | No intentional send; draft-only mode does not invoke `Alt+S`. |
+The [visual quick start](#visual-quick-start) is the single cheat sheet for all
+double-clickable files, so it does not need to be repeated here.
 
 ## Manual setup with PowerShell
 
@@ -835,7 +891,8 @@ wechat-automate/
 ├── philippine_holidays.py    # Official-calendar loading, refresh, and rules
 ├── philippine_holidays.json  # Bundled verified 2026 nationwide calendar
 ├── setup_daily_task.ps1      # Dependency check and Task Scheduler installer
-├── tests/                    # Holiday-rule and calendar-parser tests
+├── docs/                     # Visual quick-start diagrams used by this README
+├── tests/                    # Automation, holiday, installer, and visual tests
 ├── requirements.txt          # Python runtime dependencies
 ├── README.md                 # Project documentation
 └── .gitignore                # Excludes local runtime data and generated output
