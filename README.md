@@ -90,7 +90,7 @@ Need more help? Jump to [Easiest setup for non-coders](#easiest-setup-for-non-co
 - [Troubleshooting](#troubleshooting)
 - [Project structure](#project-structure)
 - [Development and verification](#development-and-verification)
-- [Publishing on GitHub](#publishing-on-github)
+- [License](#license)
 
 ## Features
 
@@ -895,6 +895,7 @@ wechat-automate/
 ├── tests/                    # Automation, holiday, installer, and visual tests
 ├── requirements.txt          # Python runtime dependencies
 ├── README.md                 # Project documentation
+├── LICENSE                   # MIT License terms
 └── .gitignore                # Excludes local runtime data and generated output
 ```
 
@@ -935,22 +936,6 @@ Use `--send-now --draft-only` only when a signed-in WeChat session is available
 and you can verify the selected conversation. A real send should always be the
 final manual test.
 
-## Publishing on GitHub
+## License
 
-Before making the repository public:
-
-1. Review the source defaults and replace the contact name if it identifies a
-   private organization or group.
-2. Confirm with `git status` that logs, screenshots, local Python runtimes, and
-   cache files are not staged.
-3. Check any screenshots you intentionally add for names, messages,
-   notifications, dates, or other personal information.
-4. Add an appropriate `LICENSE` file if you want others to have explicit rights
-   to use, modify, or redistribute the project. No license is selected by this
-   repository documentation.
-5. Document the Windows and WeChat versions used for your final test in the
-   GitHub release notes, because desktop UI behavior can change over time.
-
-The repository should contain the source scripts, dependency manifest,
-beginner helper files, documentation, and `.gitignore`; it should not contain
-the local `.runtime` directory or artifacts created by actual attendance runs.
+This project is available under the [MIT License](LICENSE).
