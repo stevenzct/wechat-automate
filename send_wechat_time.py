@@ -572,8 +572,19 @@ def record_time_in_sent(day: date, marker_path: Path = TIME_IN_MARKER_FILE) -> N
                 pass
 
 
-def deliver_screenshot(image, contact_name: str, *, draft_only: bool = False) -> None:
-    """Select a WeChat conversation, paste the image, and optionally send it."""
+def attendance_caption(label: str, now: datetime) -> str:
+    """Return the 'Time In'/'Time Out' text sent alongside the screenshot."""
+    return f"{label}\n{now.strftime('%I:%M %p | %B %d, %Y')}"
+
+
+def deliver_screenshot(
+    image,
+    contact_name: str,
+    *,
+    caption: str | None = None,
+    draft_only: bool = False,
+) -> None:
+    """Select a WeChat conversation, paste the caption and image, then optionally send."""
     window_handle = activate_wechat()
     ensure_wechat_has_focus(window_handle)
 
@@ -587,6 +598,14 @@ def deliver_screenshot(image, contact_name: str, *, draft_only: bool = False) ->
     pyautogui.press("enter")
     time.sleep(1.2)
     ensure_wechat_has_focus(window_handle)
+
+    if caption:
+        # A trailing newline in the pasted clipboard text (not a physical Enter
+        # key press) moves the cursor to its own line before the image, without
+        # risking a premature send under WeChat's "Enter to send" preference.
+        paste_text(f"{caption}\n")
+        time.sleep(0.5)
+        ensure_wechat_has_focus(window_handle)
 
     copy_image_to_clipboard(image)
     pyautogui.hotkey("ctrl", "v")
@@ -855,7 +874,15 @@ def main() -> int:
             print(saved_path)
             return 0
 
-        deliver_screenshot(screenshot, args.contact, draft_only=args.draft_only)
+        caption = None
+        if args.time_in:
+            caption = attendance_caption("Time In", now)
+        elif args.scheduled:
+            caption = attendance_caption("Time Out", now)
+
+        deliver_screenshot(
+            screenshot, args.contact, caption=caption, draft_only=args.draft_only
+        )
         if args.draft_only:
             return 0
 

@@ -99,6 +99,9 @@ Need more help? Jump to [Easiest setup for non-coders](#easiest-setup-for-non-co
 - Supports full-primary-screen captures when required.
 - Sends immediately, creates a safe unsent draft, or runs only during the
   scheduled clock minute.
+- Sends a `Time In` or `Time Out` caption with the local time and date ahead of
+  the screenshot for both automated modes, so the conversation is readable
+  without opening every image.
 - Sends time-in after the current user signs in or unlocks the workstation,
   with an approximately 30-second delay so the interactive desktop can settle.
 - Records a successful time-in locally and sends at most one time-in per local
@@ -132,7 +135,9 @@ Need more help? Jump to [Easiest setup for non-coders](#easiest-setup-for-non-co
 5. In a send mode, it finds or starts WeChat, restores its main chat window,
    and verifies that the foreground process is really WeChat/Weixin.
 6. It opens WeChat search with `Ctrl+F`, pastes the configured contact name,
-   selects the first result, and pastes the screenshot as bitmap data.
+   selects the first result, pastes a `Time In` or `Time Out` caption with the
+   local time and date for `--time-in` and `--scheduled` runs, and pastes the
+   screenshot as bitmap data.
 7. Draft mode stops here. Otherwise, the script sends with `Alt+S` so it works
    regardless of the user's Enter-key preference in WeChat.
 

@@ -77,6 +77,33 @@ class DraftDeliveryTests(unittest.TestCase):
         )
         self.assertNotIn(call("alt", "s"), automation.hotkey.mock_calls)
 
+    def test_caption_is_pasted_before_the_screenshot(self):
+        screenshot = object()
+        automation = Mock()
+        paste_text_mock = Mock()
+
+        with (
+            patch.object(sender, "activate_wechat", return_value=123),
+            patch.object(sender, "ensure_wechat_has_focus"),
+            patch.object(sender, "paste_text", paste_text_mock),
+            patch.object(sender, "copy_image_to_clipboard"),
+            patch.object(sender, "pyautogui", automation),
+            patch.object(sender.time, "sleep"),
+        ):
+            sender.deliver_screenshot(
+                screenshot,
+                "Attendance Recording",
+                caption="Time In\n08:15 AM | August 06, 2026",
+                draft_only=True,
+            )
+
+        paste_text_mock.assert_has_calls(
+            [
+                call("Attendance Recording"),
+                call("Time In\n08:15 AM | August 06, 2026\n"),
+            ]
+        )
+
 
 class TimeInModeTests(unittest.TestCase):
     @staticmethod
@@ -194,6 +221,9 @@ class TimeInModeTests(unittest.TestCase):
             delivery.assert_called_once_with(
                 capture.return_value,
                 "Attendance Recording",
+                caption=sender.attendance_caption(
+                    "Time In", datetime(2026, 8, 6, 8, 15)
+                ),
                 draft_only=True,
             )
             marker_read.assert_not_called()
@@ -290,6 +320,103 @@ class TimeInModeTests(unittest.TestCase):
             holiday_gate.assert_called_once_with(date(2026, 8, 7))
             capture.assert_not_called()
             delivery.assert_not_called()
+
+
+class _SequentialClock:
+    """Replacement for the module-level ``datetime`` name that returns a fixed
+    sequence of "now" values while delegating everything else (notably
+    ``combine``, used by ``inside_schedule_window``) to the real class."""
+
+    def __init__(self, now_values):
+        self._now_values = iter(now_values)
+
+    def now(self):
+        return next(self._now_values)
+
+    def __getattr__(self, name):
+        return getattr(datetime, name)
+
+
+class ScheduledModeTests(unittest.TestCase):
+    @staticmethod
+    def scheduled_args(*, draft_only: bool = False) -> argparse.Namespace:
+        return argparse.Namespace(
+            scheduled=True,
+            time_in=False,
+            send_now=False,
+            preview=False,
+            check=False,
+            contact="Attendance Recording",
+            send_time=clock_time(18, 0),
+            grace_minutes=0,
+            draft_only=draft_only,
+            weekdays_only=True,
+            full_screen=False,
+            capture_width=500,
+            capture_height=660,
+            output=Path("unused-preview.png"),
+        )
+
+    def run_scheduled(self, *, now: datetime, draft_only: bool = False):
+        arguments = self.scheduled_args(draft_only=draft_only)
+        screenshot = object()
+        capture = Mock(return_value=screenshot)
+        delivery = Mock()
+        holiday_gate = Mock(return_value=True)
+        # One call to determine the schedule window, one to recheck it after
+        # the holiday check, matching main()'s scheduled-mode control flow.
+        # inside_schedule_window() calls datetime.combine(), so a real proxy
+        # is used instead of a bare Mock.
+        datetime_api = _SequentialClock([now, now])
+        kernel32 = SimpleNamespace(CloseHandle=Mock(return_value=True))
+
+        with (
+            patch.object(sender, "parse_args", return_value=arguments),
+            patch.object(sender, "configure_logging"),
+            patch.object(sender, "configure_dpi_awareness"),
+            patch.object(sender, "acquire_single_instance_mutex", return_value=123),
+            patch.object(sender, "KERNEL32", kernel32),
+            patch.object(sender, "datetime", datetime_api),
+            patch.object(sender.logging, "info"),
+            patch.object(sender.logging, "warning"),
+            patch.object(sender.logging, "exception"),
+            patch.object(sender, "philippine_holiday_rule_allows", holiday_gate),
+            patch.object(sender, "capture_timeout_screenshot", capture),
+            patch.object(sender, "deliver_screenshot", delivery),
+        ):
+            result = sender.main()
+
+        return result, capture, delivery, holiday_gate
+
+    def test_scheduled_send_includes_time_out_caption(self):
+        now = datetime(2026, 8, 6, 18, 0, 5)
+
+        result, capture, delivery, holiday_gate = self.run_scheduled(now=now)
+
+        self.assertEqual(result, 0)
+        holiday_gate.assert_called_once_with(date(2026, 8, 6))
+        capture.assert_called_once()
+        delivery.assert_called_once_with(
+            capture.return_value,
+            "Attendance Recording",
+            caption=sender.attendance_caption("Time Out", now),
+            draft_only=False,
+        )
+
+    def test_scheduled_draft_still_includes_time_out_caption(self):
+        now = datetime(2026, 8, 6, 18, 0, 5)
+
+        result, capture, delivery, _holiday_gate = self.run_scheduled(
+            now=now, draft_only=True
+        )
+
+        self.assertEqual(result, 0)
+        delivery.assert_called_once_with(
+            capture.return_value,
+            "Attendance Recording",
+            caption=sender.attendance_caption("Time Out", now),
+            draft_only=True,
+        )
 
 
 if __name__ == "__main__":
